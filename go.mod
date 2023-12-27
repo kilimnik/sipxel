@@ -2,6 +2,8 @@ module github.com/kilimnik/sipxel
 
 go 1.20
 
+replace github.com/emiago/sipgox => github.com/kilimnik/sipgox v0.0.0-20231102211513-9c89dd0d78ad
+
 require (
 	github.com/emiago/sipgo v0.14.1-0.20231026213527-9495e705942b
 	github.com/emiago/sipgox v0.4.0
