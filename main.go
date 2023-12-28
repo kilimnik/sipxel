@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/emiago/sipgo"
@@ -188,8 +189,8 @@ func main() {
 
 	srv.OnAck(func(req *sip.Request, tx sip.ServerTransaction) {})
 
-	sig := make(chan os.Signal)
-	signal.Notify(sig, os.Interrupt)
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
 
 	<-sig
 }

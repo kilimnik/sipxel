@@ -1,0 +1,9 @@
+version: "3.7"
+services:
+  sipxel:
+    image: sipxel
+    build:
+      context: .
+    network_mode: host
+    env_file:
+      - .env
