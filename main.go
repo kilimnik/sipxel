@@ -13,7 +13,6 @@ import (
 
 	"github.com/emiago/sipgo"
 	"github.com/emiago/sipgo/sip"
-	"github.com/emiago/sipgox"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 
@@ -118,47 +117,19 @@ func main() {
 	log.Info().Msg("Client registered")
 
 	stateMap := map[sip.CallIDHeader]*Pixel{}
-	coords_fmt := fmt.Sprintf("%s%%4d%%4d", *username)
 
-	client.TransportLayer().OnMessage(func(msg sip.Message) {
-		method := strings.SplitN(msg.String(), " ", 2)[0]
+	srv, err := sipgo.NewServer(ua)
+	if err != nil {
+		log.Fatal().Err(err).Msg("Fail to setup server handle")
+	}
 
-		switch method {
-		case sip.INFO.String():
-			// Signal= Split
-			signalStr := string(msg.Body()[7:])
-			signal, _ := strconv.Atoi(signalStr[:len(signalStr)-2])
+	srv.OnInvite(func(req *sip.Request, tx sip.ServerTransaction) {
+		callID, _ := req.CallID()
 
-			key, _ := msg.CallID()
-			if val, ok := stateMap[*key]; ok {
-				val.color = (val.color * 10) + signal
-			}
-		default:
-			break
-		}
-	})
-
-	for {
-		phone := sipgox.NewPhone(ua)
-		ctx, _ := context.WithCancel(context.Background())
-		dialog, err := phone.Answer(ctx, sipgox.AnswerOptions{
-			Ringtime: 0 * time.Second,
-		})
-		if err != nil {
-			log.Fatal().Err(err).Msg("Fail to answer")
-		}
-
-		sig := make(chan os.Signal)
-		signal.Notify(sig, os.Interrupt)
-
-		callID, _ := dialog.InviteRequest.CallID()
-
-		to, _ := dialog.InviteRequest.To()
-		var x int
-		var y int
-
-		// TODO SLOW
-		fmt.Sscanf(to.Address.User, coords_fmt, &x, &y)
+		to, _ := req.To()
+		user := to.Address.User[len(*username):]
+		x, _ := strconv.Atoi(user[:4])
+		y, _ := strconv.Atoi(user[4:])
 
 		stateMap[*callID] = &Pixel{
 			x,
@@ -166,29 +137,51 @@ func main() {
 			0,
 		}
 
+		res := sip.NewResponseFromRequest(req, 200, "OK", nil)
+		// Send response
+		tx.Respond(res)
+
 		select {
-		case <-sig:
-			ctx, _ := context.WithTimeout(context.Background(), 3*time.Second)
-			dialog.Hangup(ctx)
+		case <-tx.Done():
 			return
-
-		case <-dialog.Done():
-			fmt.Printf("DONE %+v\n", stateMap[*callID])
-
-			con, err := net.DialTCP("tcp", nil, &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 8080})
-			if err != nil {
-				log.Fatal().Err(err).Msg("Failed to connect to pixelflut server")
-			}
-
-			state := stateMap[*callID]
-			r := (state.color / (1000 * 1000)) % 256
-			g := ((state.color / 1000) % 1000) % 256
-			b := ((state.color) % 1000) % 256
-
-			con.Write([]byte(fmt.Sprintf("PX %d %d %02x%02x%02x\n", state.x, state.y, r, g, b)))
-			con.Close()
 		}
-	}
+	})
+
+	srv.OnBye(func(req *sip.Request, tx sip.ServerTransaction) {
+		callID, _ := req.CallID()
+
+		fmt.Printf("DONE %v, %+v\n", callID, stateMap[*callID])
+
+		con, err := net.DialTCP("tcp", nil, &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 8080})
+		if err != nil {
+			log.Fatal().Err(err).Msg("Failed to connect to pixelflut server")
+		}
+
+		state := stateMap[*callID]
+		r := (state.color / (1000 * 1000)) % 256
+		g := ((state.color / 1000) % 1000) % 256
+		b := ((state.color) % 1000) % 256
+
+		con.Write([]byte(fmt.Sprintf("PX %d %d %02x%02x%02x\n", state.x, state.y, r, g, b)))
+		con.Close()
+	})
+
+	srv.OnInfo(func(req *sip.Request, tx sip.ServerTransaction) {
+		signalStr := string(req.Body()[7:])
+		signal, _ := strconv.Atoi(signalStr[:len(signalStr)-2])
+
+		key, _ := req.CallID()
+		if val, ok := stateMap[*key]; ok {
+			val.color = (val.color * 10) + signal
+		}
+	})
+
+	srv.OnAck(func(req *sip.Request, tx sip.ServerTransaction) {})
+
+	sig := make(chan os.Signal)
+	signal.Notify(sig, os.Interrupt)
+
+	<-sig
 }
 
 func getResponse(tx sip.ClientTransaction) (*sip.Response, error) {
