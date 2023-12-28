@@ -145,10 +145,10 @@ func main() {
 		// Send response
 		tx.Respond(res)
 
-		select {
-		case <-tx.Done():
-			return
-		}
+		// select {
+		// case <-tx.Done():
+		// 	return
+		// }
 	})
 
 	srv.OnBye(func(req *sip.Request, tx sip.ServerTransaction) {
