@@ -153,7 +153,6 @@ func main() {
 
 	srv.OnBye(func(req *sip.Request, tx sip.ServerTransaction) {
 		callID, _ := req.CallID()
-		from, _ := req.From()
 
 		stateMapMutex.RLock()
 		state := stateMap[*callID]
@@ -168,7 +167,7 @@ func main() {
 		g := ((state.color / 1000) % 1000) % 256
 		b := ((state.color) % 1000) % 256
 
-		fmt.Printf("DONE %v (%v), %d %d => %d %d %d\n", callID, from, state.x, state.y, r, g, b)
+		fmt.Printf("DONE %v, %d %d => %d %d %d\n", callID, state.x, state.y, r, g, b)
 
 		con.Write([]byte(fmt.Sprintf("PX %d %d %02x%02x%02x\n", state.x, state.y, r, g, b)))
 		con.Close()
