@@ -1,4 +1,4 @@
-FROM golang:1.20 as build
+FROM docker.io/golang:1.20 as build
 
 WORKDIR /go/src/app
 COPY . .
@@ -9,7 +9,7 @@ RUN go test -v
 
 RUN CGO_ENABLED=0 go build -o /go/bin/app
 
-FROM alpine
+FROM docker.io/alpine
 
 COPY --from=build /go/bin/app /
 
