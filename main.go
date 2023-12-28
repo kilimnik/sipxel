@@ -15,6 +15,8 @@ import (
 
 	"github.com/emiago/sipgo"
 	"github.com/emiago/sipgo/sip"
+	"github.com/emiago/sipgox"
+	"github.com/pion/rtp"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 
@@ -27,6 +29,7 @@ func main() {
 	tran := flag.String("t", "udp", "Transport")
 	username := flag.String("u", "alice", "SIP Username")
 	password := flag.String("p", "alice", "Password")
+	callNumber := flag.String("call", "", "Number to call")
 	flag.Parse()
 
 	zerolog.TimeFieldFormat = zerolog.TimeFormatUnixMicro
@@ -52,6 +55,52 @@ func main() {
 
 	log.Info().Msg("Client registered")
 
+	if *callNumber != "" {
+		testDial(callNumber, dst, ua)
+	} else {
+		proxy(ua, username)
+	}
+}
+
+func testDial(callNumber *string, dst *string, ua *sipgo.UserAgent) {
+	recipient := sip.Uri{User: *callNumber, Host: *dst, Headers: sip.NewParams()}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	phone := sipgox.NewPhone(ua)
+	dialog, err := phone.Dial(ctx, recipient, sipgox.DialOptions{})
+	if err != nil {
+		log.Fatal().Err(err).Msg("Fail to dial")
+	}
+	defer dialog.Close()
+
+	sequencer := rtp.NewFixedSequencer(1)
+
+	go func() {
+		pkt := &rtp.Packet{
+			Header: rtp.Header{
+				Version:        2,
+				Padding:        false,
+				Extension:      false,
+				Marker:         false,
+				PayloadType:    0,
+				SequenceNumber: sequencer.NextSequenceNumber(),
+				Timestamp:      20, // Figure out how to do timestamps
+				SSRC:           111222,
+			},
+			Payload: []byte("1234567890"),
+		}
+
+		if err := dialog.WriteRTP(pkt); err != nil {
+			log.Error().Err(err).Msg("Fail to send RTP")
+			return
+		}
+
+		dialog.Hangup(ctx)
+	}()
+}
+
+func proxy(ua *sipgo.UserAgent, username *string) {
 	stateMapMutex := &sync.RWMutex{}
 	stateMap := map[sip.CallIDHeader]*Pixel{}
 
