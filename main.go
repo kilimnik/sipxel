@@ -127,9 +127,9 @@ func main() {
 		callID, _ := req.CallID()
 
 		to, _ := req.To()
-		user := to.Address.User[len(*username):]
-		x, _ := strconv.Atoi(user[:4])
-		y, _ := strconv.Atoi(user[4:])
+		user := to.Address.User[len(*username):] + "00000000"
+		x, _ := strconv.Atoi(user[0:4])
+		y, _ := strconv.Atoi(user[4:8])
 
 		stateMap[*callID] = &Pixel{
 			x,
