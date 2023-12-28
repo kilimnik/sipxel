@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/emiago/sipgo"
@@ -116,6 +117,7 @@ func main() {
 
 	log.Info().Msg("Client registered")
 
+	stateMapMutex := &sync.RWMutex{}
 	stateMap := map[sip.CallIDHeader]*Pixel{}
 
 	srv, err := sipgo.NewServer(ua)
@@ -131,11 +133,13 @@ func main() {
 		x, _ := strconv.Atoi(user[0:4])
 		y, _ := strconv.Atoi(user[4:8])
 
+		stateMapMutex.Lock()
 		stateMap[*callID] = &Pixel{
 			x,
 			y,
 			0,
 		}
+		stateMapMutex.Unlock()
 
 		res := sip.NewResponseFromRequest(req, 200, "OK", nil)
 		// Send response
@@ -150,14 +154,17 @@ func main() {
 	srv.OnBye(func(req *sip.Request, tx sip.ServerTransaction) {
 		callID, _ := req.CallID()
 
-		fmt.Printf("DONE %v, %+v\n", callID, stateMap[*callID])
+		stateMapMutex.RLock()
+		state := stateMap[*callID]
+		stateMapMutex.RUnlock()
+
+		fmt.Printf("DONE %v, %+v\n", callID, state)
 
 		con, err := net.DialTCP("tcp", nil, &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 8080})
 		if err != nil {
 			log.Fatal().Err(err).Msg("Failed to connect to pixelflut server")
 		}
 
-		state := stateMap[*callID]
 		r := (state.color / (1000 * 1000)) % 256
 		g := ((state.color / 1000) % 1000) % 256
 		b := ((state.color) % 1000) % 256
@@ -171,9 +178,12 @@ func main() {
 		signal, _ := strconv.Atoi(signalStr[:len(signalStr)-2])
 
 		key, _ := req.CallID()
+
+		stateMapMutex.RLock()
 		if val, ok := stateMap[*key]; ok {
 			val.color = (val.color * 10) + signal
 		}
+		stateMapMutex.RUnlock()
 	})
 
 	srv.OnAck(func(req *sip.Request, tx sip.ServerTransaction) {})
