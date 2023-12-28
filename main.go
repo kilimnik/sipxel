@@ -45,75 +45,9 @@ func main() {
 		log.Fatal().Err(err).Msg("Fail to setup user agent")
 	}
 
-	client, err := sipgo.NewClient(ua)
+	_, err = registerClient(username, password, dst, inter, tran, ua)
 	if err != nil {
-		log.Fatal().Err(err).Msg("Fail to setup client handle")
-	}
-	defer client.Close()
-
-	// Create basic REGISTER request structure
-	recipient := &sip.Uri{}
-	sip.ParseUri(fmt.Sprintf("sip:%s@%s", *username, *dst), recipient)
-	req := sip.NewRequest(sip.REGISTER, recipient)
-	req.AppendHeader(
-		sip.NewHeader("Contact", fmt.Sprintf("<sip:%s@%s>", *username, *inter)),
-	)
-	req.SetTransport(strings.ToUpper(*tran))
-
-	// Send request and parse response
-	// req.SetDestination(*dst)
-	log.Info().Msg(req.StartLine())
-	ctx := context.Background()
-	tx, err := client.TransactionRequest(ctx, req)
-	if err != nil {
-		log.Fatal().Err(err).Msg("Fail to create transaction")
-	}
-	defer tx.Terminate()
-
-	res, err := getResponse(tx)
-	if err != nil {
-		log.Fatal().Err(err).Msg("Fail to get response")
-	}
-
-	log.Info().Int("status", int(res.StatusCode)).Msg("Received status")
-	if res.StatusCode == 401 {
-		// Get WwW-Authenticate
-		wwwAuth := res.GetHeader("WWW-Authenticate")
-		chal, err := digest.ParseChallenge(wwwAuth.Value())
-		if err != nil {
-			log.Fatal().Str("wwwauth", wwwAuth.Value()).Err(err).Msg("Fail to parse challenge")
-		}
-
-		// Reply with digest
-		cred, _ := digest.Digest(chal, digest.Options{
-			Method:   req.Method.String(),
-			URI:      recipient.Host,
-			Username: *username,
-			Password: *password,
-		})
-
-		newReq := sip.NewRequest(sip.REGISTER, recipient)
-		newReq.AppendHeader(
-			sip.NewHeader("Contact", fmt.Sprintf("<sip:%s@%s>", *username, *inter)),
-		)
-		newReq.SetTransport(strings.ToUpper(*tran))
-		newReq.AppendHeader(sip.NewHeader("Authorization", cred.String()))
-
-		ctx := context.Background()
-		tx, err := client.TransactionRequest(ctx, newReq)
-		if err != nil {
-			log.Fatal().Err(err).Msg("Fail to create transaction")
-		}
-		defer tx.Terminate()
-
-		res, err = getResponse(tx)
-		if err != nil {
-			log.Fatal().Err(err).Msg("Fail to get response")
-		}
-	}
-
-	if res.StatusCode != 200 {
-		log.Fatal().Msg("Fail to register")
+		log.Fatal().Err(err).Msg("Fail to register client")
 	}
 
 	log.Info().Msg("Client registered")
@@ -193,6 +127,87 @@ func main() {
 	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
 
 	<-sig
+}
+
+func registerClient(username *string, password *string, dst *string, inter *string, tran *string, ua *sipgo.UserAgent) (*sipgo.Client, error) {
+	client, err := sipgo.NewClient(ua)
+	if err != nil {
+		log.Fatal().Err(err).Msg("Fail to setup client handle")
+		return nil, err
+	}
+	defer client.Close()
+
+	// Create basic REGISTER request structure
+	recipient := &sip.Uri{}
+	sip.ParseUri(fmt.Sprintf("sip:%s@%s", *username, *dst), recipient)
+	req := sip.NewRequest(sip.REGISTER, recipient)
+	req.AppendHeader(
+		sip.NewHeader("Contact", fmt.Sprintf("<sip:%s@%s>", *username, *inter)),
+	)
+	req.SetTransport(strings.ToUpper(*tran))
+
+	// Send request and parse response
+	// req.SetDestination(*dst)
+	log.Info().Msg(req.StartLine())
+	ctx := context.Background()
+	tx, err := client.TransactionRequest(ctx, req)
+	if err != nil {
+		log.Fatal().Err(err).Msg("Fail to create transaction")
+		return nil, err
+	}
+	defer tx.Terminate()
+
+	res, err := getResponse(tx)
+	if err != nil {
+		log.Fatal().Err(err).Msg("Fail to get response")
+		return nil, err
+	}
+
+	log.Info().Int("status", int(res.StatusCode)).Msg("Received status")
+	if res.StatusCode == 401 {
+		// Get WwW-Authenticate
+		wwwAuth := res.GetHeader("WWW-Authenticate")
+		chal, err := digest.ParseChallenge(wwwAuth.Value())
+		if err != nil {
+			log.Fatal().Str("wwwauth", wwwAuth.Value()).Err(err).Msg("Fail to parse challenge")
+			return nil, err
+		}
+
+		// Reply with digest
+		cred, _ := digest.Digest(chal, digest.Options{
+			Method:   req.Method.String(),
+			URI:      recipient.Host,
+			Username: *username,
+			Password: *password,
+		})
+
+		newReq := sip.NewRequest(sip.REGISTER, recipient)
+		newReq.AppendHeader(
+			sip.NewHeader("Contact", fmt.Sprintf("<sip:%s@%s>", *username, *inter)),
+		)
+		newReq.SetTransport(strings.ToUpper(*tran))
+		newReq.AppendHeader(sip.NewHeader("Authorization", cred.String()))
+
+		ctx := context.Background()
+		tx, err := client.TransactionRequest(ctx, newReq)
+		if err != nil {
+			log.Fatal().Err(err).Msg("Fail to create transaction")
+			return nil, err
+		}
+		defer tx.Terminate()
+
+		res, err = getResponse(tx)
+		if err != nil {
+			log.Fatal().Err(err).Msg("Fail to get response")
+			return nil, err
+		}
+	}
+
+	if res.StatusCode != 200 {
+		log.Fatal().Msg("Fail to register")
+	}
+
+	return client, nil
 }
 
 func getResponse(tx sip.ClientTransaction) (*sip.Response, error) {
