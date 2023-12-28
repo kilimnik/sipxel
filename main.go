@@ -158,8 +158,6 @@ func main() {
 		state := stateMap[*callID]
 		stateMapMutex.RUnlock()
 
-		fmt.Printf("DONE %v, %+v\n", callID, state)
-
 		con, err := net.DialTCP("tcp", nil, &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 8080})
 		if err != nil {
 			log.Fatal().Err(err).Msg("Failed to connect to pixelflut server")
@@ -168,6 +166,8 @@ func main() {
 		r := (state.color / (1000 * 1000)) % 256
 		g := ((state.color / 1000) % 1000) % 256
 		b := ((state.color) % 1000) % 256
+
+		fmt.Printf("DONE %v, %d %d => %d %d %d\n", callID, state.x, state.y, r, g, b)
 
 		con.Write([]byte(fmt.Sprintf("PX %d %d %02x%02x%02x\n", state.x, state.y, r, g, b)))
 		con.Close()
