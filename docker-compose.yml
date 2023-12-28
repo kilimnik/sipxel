@@ -7,3 +7,4 @@ services:
     network_mode: host
     env_file:
       - .env
+    restart: on-failure
