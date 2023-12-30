@@ -250,6 +250,25 @@ func registerClient(username *string, password *string, dst *string, inter *stri
 			log.Fatal().Err(err).Msg("Fail to get response")
 			return nil, err
 		}
+
+		contact, _ := res.Contact()
+		expires, _ := contact.Params.Get("expires")
+		expiresInt, _ := strconv.Atoi(expires)
+		fmt.Printf("Expires: %s\n", expires)
+
+		ticker := time.NewTicker(time.Duration(expiresInt-100) * time.Second)
+		quit := make(chan struct{})
+		go func() {
+			for {
+				select {
+				case <-ticker.C:
+					registerClient(username, password, dst, inter, tran, ua)
+				case <-quit:
+					ticker.Stop()
+					return
+				}
+			}
+		}()
 	}
 
 	if res.StatusCode != 200 {
