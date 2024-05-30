@@ -110,9 +110,9 @@ func proxy(ua *sipgo.UserAgent, username *string) {
 	}
 
 	srv.OnInvite(func(req *sip.Request, tx sip.ServerTransaction) {
-		callID, _ := req.CallID()
+		callID := req.CallID()
 
-		to, _ := req.To()
+		to := req.To()
 		user := to.Address.User[len(*username):] + "00000000"
 		x, _ := strconv.Atoi(user[0:4])
 		y, _ := strconv.Atoi(user[4:8])
@@ -136,7 +136,7 @@ func proxy(ua *sipgo.UserAgent, username *string) {
 	})
 
 	srv.OnBye(func(req *sip.Request, tx sip.ServerTransaction) {
-		callID, _ := req.CallID()
+		callID := req.CallID()
 
 		stateMapMutex.RLock()
 		state := stateMap[*callID]
@@ -161,7 +161,7 @@ func proxy(ua *sipgo.UserAgent, username *string) {
 		signalStr := string(req.Body()[7:])
 		signal, _ := strconv.Atoi(signalStr[:len(signalStr)-2])
 
-		key, _ := req.CallID()
+		key := req.CallID()
 
 		stateMapMutex.RLock()
 		if val, ok := stateMap[*key]; ok {
@@ -189,7 +189,7 @@ func registerClient(username *string, password *string, dst *string, inter *stri
 	// Create basic REGISTER request structure
 	recipient := &sip.Uri{}
 	sip.ParseUri(fmt.Sprintf("sip:%s@%s", *username, *dst), recipient)
-	req := sip.NewRequest(sip.REGISTER, recipient)
+	req := sip.NewRequest(sip.REGISTER, *recipient)
 	req.AppendHeader(
 		sip.NewHeader("Contact", fmt.Sprintf("<sip:%s@%s>", *username, *inter)),
 	)
@@ -213,6 +213,7 @@ func registerClient(username *string, password *string, dst *string, inter *stri
 	}
 
 	log.Info().Int("status", int(res.StatusCode)).Msg("Received status")
+
 	if res.StatusCode == 401 {
 		// Get WwW-Authenticate
 		wwwAuth := res.GetHeader("WWW-Authenticate")
@@ -230,7 +231,7 @@ func registerClient(username *string, password *string, dst *string, inter *stri
 			Password: *password,
 		})
 
-		newReq := sip.NewRequest(sip.REGISTER, recipient)
+		newReq := sip.NewRequest(sip.REGISTER, *recipient)
 		newReq.AppendHeader(
 			sip.NewHeader("Contact", fmt.Sprintf("<sip:%s@%s>", *username, *inter)),
 		)
@@ -251,7 +252,7 @@ func registerClient(username *string, password *string, dst *string, inter *stri
 			return nil, err
 		}
 
-		contact, _ := res.Contact()
+		contact := res.Contact()
 		expires, _ := contact.Params.Get("expires")
 		expiresInt, _ := strconv.Atoi(expires)
 		fmt.Printf("Expires: %s\n", expires)

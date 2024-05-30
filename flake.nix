@@ -14,7 +14,7 @@
       version = "0.0.1";
 
       src = ./.;
-      vendorHash = "sha256-EWRII7pvpWlTFYF1bihu7IObx7pvBxbGVhQ5PpzhYE8=";
+      vendorHash = "sha256-+oIK3EwfGm7N35bI9//ZJXv1KQgBF+BxjVE+6TRPsvA=";
     };
 
     devShells.x86_64-linux.default = pkgs.mkShell {
