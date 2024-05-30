@@ -102,8 +102,7 @@ func testDial(callNumber *string, dst *string, ua *sipgo.UserAgent) {
 }
 
 func proxy(ua *sipgo.UserAgent, username *string) {
-	stateMapMutex := &sync.RWMutex{}
-	stateMap := map[sip.CallIDHeader]*Pixel{}
+	stateMap := sync.Map{}
 
 	srv, err := sipgo.NewServer(ua)
 	if err != nil {
@@ -113,9 +112,7 @@ func proxy(ua *sipgo.UserAgent, username *string) {
 	srv.OnInvite(func(req *sip.Request, tx sip.ServerTransaction) {
 		callID := req.CallID()
 
-		stateMapMutex.Lock()
-		_, ok := stateMap[*callID]
-		stateMapMutex.Unlock()
+		_, ok := stateMap.Load(*callID)
 
 		if ok {
 			return
@@ -134,9 +131,7 @@ func proxy(ua *sipgo.UserAgent, username *string) {
 		}
 		pixel.seqs[req.CSeq().SeqNo] = true
 
-		stateMapMutex.Lock()
-		stateMap[*callID] = pixel
-		stateMapMutex.Unlock()
+		stateMap.Store(*callID, pixel)
 
 		res := sip.NewResponseFromRequest(req, 200, "OK", nil)
 		// Send response
@@ -151,9 +146,8 @@ func proxy(ua *sipgo.UserAgent, username *string) {
 	srv.OnBye(func(req *sip.Request, tx sip.ServerTransaction) {
 		callID := req.CallID()
 
-		stateMapMutex.RLock()
-		state := stateMap[*callID]
-		stateMapMutex.RUnlock()
+		x, _ := stateMap.Load(*callID)
+		state := x.(*Pixel)
 
 		_, ok := state.seqs[req.CSeq().SeqNo]
 		if ok {
@@ -190,9 +184,8 @@ func proxy(ua *sipgo.UserAgent, username *string) {
 	srv.OnInfo(func(req *sip.Request, tx sip.ServerTransaction) {
 		callID := req.CallID()
 
-		stateMapMutex.RLock()
-		state := stateMap[*callID]
-		stateMapMutex.RUnlock()
+		x, _ := stateMap.Load(*callID)
+		state := x.(*Pixel)
 
 		_, ok := state.seqs[req.CSeq().SeqNo]
 		if ok {
