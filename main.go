@@ -179,6 +179,9 @@ func proxy(ua *sipgo.UserAgent, username *string) {
 
 		con.Write([]byte(fmt.Sprintf("PX %d %d %02x%02x%02x\n", state.x, state.y, r, g, b)))
 		con.Close()
+
+		res := sip.NewResponseFromRequest(req, 200, "OK", nil)
+		tx.Respond(res)
 	})
 
 	srv.OnInfo(func(req *sip.Request, tx sip.ServerTransaction) {
@@ -196,6 +199,9 @@ func proxy(ua *sipgo.UserAgent, username *string) {
 		signalStr := string(req.Body()[7:])
 		signal, _ := strconv.Atoi(signalStr[:len(signalStr)-2])
 		state.colors[int(req.CSeq().SeqNo)] = signal
+
+		res := sip.NewResponseFromRequest(req, 200, "OK", nil)
+		tx.Respond(res)
 	})
 
 	srv.OnAck(func(req *sip.Request, tx sip.ServerTransaction) {})
