@@ -16,5 +16,9 @@
       src = ./.;
       vendorHash = "sha256-EWRII7pvpWlTFYF1bihu7IObx7pvBxbGVhQ5PpzhYE8=";
     };
+
+    devShells.x86_64-linux.default = pkgs.mkShell {
+      buildInputs = [ pkgs.go ];
+    };
   };
 }

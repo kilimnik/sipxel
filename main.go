@@ -283,6 +283,14 @@ func getResponse(tx sip.ClientTransaction) (*sip.Response, error) {
 	case <-tx.Done():
 		return nil, fmt.Errorf("transaction died")
 	case res := <-tx.Responses():
+		for {
+			if res.StatusCode == 100 {
+				res = <-tx.Responses()
+			} else {
+				break
+			}
+		}
+
 		return res, nil
 	}
 }
