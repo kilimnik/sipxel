@@ -113,17 +113,29 @@ func proxy(ua *sipgo.UserAgent, username *string) {
 	srv.OnInvite(func(req *sip.Request, tx sip.ServerTransaction) {
 		callID := req.CallID()
 
+		stateMapMutex.Lock()
+		_, ok := stateMap[*callID]
+		stateMapMutex.Unlock()
+
+		if ok {
+			return
+		}
+
 		to := req.To()
 		user := to.Address.User[len(*username):] + "00000000"
 		x, _ := strconv.Atoi(user[0:4])
 		y, _ := strconv.Atoi(user[4:8])
 
-		stateMapMutex.Lock()
-		stateMap[*callID] = &Pixel{
+		pixel := &Pixel{
 			x,
 			y,
 			make(map[int]int),
+			make(map[uint32]bool),
 		}
+		pixel.seqs[req.CSeq().SeqNo] = true
+
+		stateMapMutex.Lock()
+		stateMap[*callID] = pixel
 		stateMapMutex.Unlock()
 
 		res := sip.NewResponseFromRequest(req, 200, "OK", nil)
@@ -142,6 +154,12 @@ func proxy(ua *sipgo.UserAgent, username *string) {
 		stateMapMutex.RLock()
 		state := stateMap[*callID]
 		stateMapMutex.RUnlock()
+
+		_, ok := state.seqs[req.CSeq().SeqNo]
+		if ok {
+			return
+		}
+		state.seqs[req.CSeq().SeqNo] = true
 
 		con, err := net.DialTCP("tcp", nil, &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 8080})
 		if err != nil {
@@ -170,17 +188,21 @@ func proxy(ua *sipgo.UserAgent, username *string) {
 	})
 
 	srv.OnInfo(func(req *sip.Request, tx sip.ServerTransaction) {
-		fmt.Printf("%v\n", req.Body())
-		signalStr := string(req.Body()[7:])
-		signal, _ := strconv.Atoi(signalStr[:len(signalStr)-2])
-
-		key := req.CallID()
+		callID := req.CallID()
 
 		stateMapMutex.RLock()
-		if val, ok := stateMap[*key]; ok {
-			val.colors[int(req.CSeq().SeqNo)] = signal
-		}
+		state := stateMap[*callID]
 		stateMapMutex.RUnlock()
+
+		_, ok := state.seqs[req.CSeq().SeqNo]
+		if ok {
+			return
+		}
+		state.seqs[req.CSeq().SeqNo] = true
+
+		signalStr := string(req.Body()[7:])
+		signal, _ := strconv.Atoi(signalStr[:len(signalStr)-2])
+		state.colors[int(req.CSeq().SeqNo)] = signal
 	})
 
 	srv.OnAck(func(req *sip.Request, tx sip.ServerTransaction) {})
@@ -313,4 +335,5 @@ type Pixel struct {
 	x      int
 	y      int
 	colors map[int]int
+	seqs   map[uint32]bool
 }
