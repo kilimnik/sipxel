@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -121,7 +122,7 @@ func proxy(ua *sipgo.UserAgent, username *string) {
 		stateMap[*callID] = &Pixel{
 			x,
 			y,
-			0,
+			make(map[int]int),
 		}
 		stateMapMutex.Unlock()
 
@@ -147,9 +148,20 @@ func proxy(ua *sipgo.UserAgent, username *string) {
 			log.Fatal().Err(err).Msg("Failed to connect to pixelflut server")
 		}
 
-		r := (state.color / (1000 * 1000)) % 256
-		g := ((state.color / 1000) % 1000) % 256
-		b := ((state.color) % 1000) % 256
+		keys := make([]int, 0, len(state.colors))
+		for k := range state.colors {
+			keys = append(keys, k)
+		}
+		sort.Ints(keys)
+
+		color := 0
+		for _, k := range keys {
+			color = color*10 + state.colors[k]
+		}
+
+		r := (color / (1000 * 1000)) % 256
+		g := ((color / 1000) % 1000) % 256
+		b := ((color) % 1000) % 256
 
 		fmt.Printf("DONE %v, %d %d => %d %d %d\n", callID, state.x, state.y, r, g, b)
 
@@ -158,6 +170,7 @@ func proxy(ua *sipgo.UserAgent, username *string) {
 	})
 
 	srv.OnInfo(func(req *sip.Request, tx sip.ServerTransaction) {
+		fmt.Printf("%v\n", req.Body())
 		signalStr := string(req.Body()[7:])
 		signal, _ := strconv.Atoi(signalStr[:len(signalStr)-2])
 
@@ -165,7 +178,7 @@ func proxy(ua *sipgo.UserAgent, username *string) {
 
 		stateMapMutex.RLock()
 		if val, ok := stateMap[*key]; ok {
-			val.color = (val.color * 10) + signal
+			val.colors[int(req.CSeq().SeqNo)] = signal
 		}
 		stateMapMutex.RUnlock()
 	})
@@ -297,7 +310,7 @@ func getResponse(tx sip.ClientTransaction) (*sip.Response, error) {
 }
 
 type Pixel struct {
-	x     int
-	y     int
-	color int
+	x      int
+	y      int
+	colors map[int]int
 }
