@@ -6,18 +6,14 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"os/signal"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/emiago/sipgo"
 	"github.com/emiago/sipgo/sip"
-	"github.com/emiago/sipgox"
-	"github.com/pion/rtp"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 
@@ -30,7 +26,6 @@ func main() {
 	tran := flag.String("t", "udp", "Transport")
 	username := flag.String("u", "alice", "SIP Username")
 	password := flag.String("p", "alice", "Password")
-	callNumber := flag.String("call", "", "Number to call")
 	flag.Parse()
 
 	zerolog.TimeFieldFormat = zerolog.TimeFormatUnixMicro
@@ -49,56 +44,51 @@ func main() {
 		log.Fatal().Err(err).Msg("Fail to setup user agent")
 	}
 
-	_, err = registerClient(username, password, dst, inter, tran, ua)
+	var expiration = 0
+
+	_, expiration, err = start(username, password, dst, inter, tran, ua)
 	if err != nil {
-		log.Fatal().Err(err).Msg("Fail to register client")
+		log.Fatal().Err(err).Msg("Fail to start client")
 	}
 
-	log.Info().Msg("Client registered")
+	for {
+		if expiration == 0 {
+			break
+		}
 
-	if *callNumber != "" {
-		testDial(callNumber, dst, ua)
-	} else {
-		proxy(ua, username)
+		log.Info().Msg("Restarting client")
+		ticker := time.NewTicker(time.Duration(expiration-100) * time.Second)
+		quit := make(chan struct{})
+		go func() {
+			for {
+				select {
+				case <-ticker.C:
+					_, expiration, err = start(username, password, dst, inter, tran, ua)
+					if err != nil {
+						log.Fatal().Err(err).Msg("Fail to start client")
+					}
+				case <-quit:
+					ticker.Stop()
+					return
+				}
+			}
+		}()
 	}
 }
 
-func testDial(callNumber *string, dst *string, ua *sipgo.UserAgent) {
-	recipient := sip.Uri{User: *callNumber, Host: *dst, Headers: sip.NewParams()}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	phone := sipgox.NewPhone(ua)
-	dialog, err := phone.Dial(ctx, recipient, sipgox.DialOptions{})
+func start(username *string, password *string, dst *string, inter *string, tran *string, ua *sipgo.UserAgent) (*sipgo.Client, int, error) {
+	client, expiration, err := registerClient(username, password, dst, inter, tran, ua)
 	if err != nil {
-		log.Fatal().Err(err).Msg("Fail to dial")
+		log.Fatal().Err(err).Msg("Fail to register client")
+		return nil, -1, err
 	}
-	defer dialog.Close()
 
-	sequencer := rtp.NewFixedSequencer(1)
+	log.Info().Msg("Client registered")
+	fmt.Printf("Expires: %v\n", expiration)
 
-	go func() {
-		pkt := &rtp.Packet{
-			Header: rtp.Header{
-				Version:        2,
-				Padding:        false,
-				Extension:      false,
-				Marker:         false,
-				PayloadType:    0,
-				SequenceNumber: sequencer.NextSequenceNumber(),
-				Timestamp:      20, // Figure out how to do timestamps
-				SSRC:           111222,
-			},
-			Payload: []byte("1234567890"),
-		}
+	proxy(ua, username)
 
-		if err := dialog.WriteRTP(pkt); err != nil {
-			log.Error().Err(err).Msg("Fail to send RTP")
-			return
-		}
-
-		dialog.Hangup(ctx)
-	}()
+	return client, expiration, nil
 }
 
 func proxy(ua *sipgo.UserAgent, username *string) {
@@ -205,18 +195,13 @@ func proxy(ua *sipgo.UserAgent, username *string) {
 	})
 
 	srv.OnAck(func(req *sip.Request, tx sip.ServerTransaction) {})
-
-	sig := make(chan os.Signal, 1)
-	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
-
-	<-sig
 }
 
-func registerClient(username *string, password *string, dst *string, inter *string, tran *string, ua *sipgo.UserAgent) (*sipgo.Client, error) {
+func registerClient(username *string, password *string, dst *string, inter *string, tran *string, ua *sipgo.UserAgent) (*sipgo.Client, int, error) {
 	client, err := sipgo.NewClient(ua)
 	if err != nil {
 		log.Fatal().Err(err).Msg("Fail to setup client handle")
-		return nil, err
+		return nil, -1, err
 	}
 	defer client.Close()
 
@@ -236,16 +221,17 @@ func registerClient(username *string, password *string, dst *string, inter *stri
 	tx, err := client.TransactionRequest(ctx, req)
 	if err != nil {
 		log.Fatal().Err(err).Msg("Fail to create transaction")
-		return nil, err
+		return nil, -1, err
 	}
 	defer tx.Terminate()
 
 	res, err := getResponse(tx)
 	if err != nil {
 		log.Fatal().Err(err).Msg("Fail to get response")
-		return nil, err
+		return nil, -1, err
 	}
 
+	var expiration = -1
 	log.Info().Int("status", int(res.StatusCode)).Msg("Received status")
 
 	if res.StatusCode == 401 {
@@ -254,7 +240,7 @@ func registerClient(username *string, password *string, dst *string, inter *stri
 		chal, err := digest.ParseChallenge(wwwAuth.Value())
 		if err != nil {
 			log.Fatal().Str("wwwauth", wwwAuth.Value()).Err(err).Msg("Fail to parse challenge")
-			return nil, err
+			return nil, -1, err
 		}
 
 		// Reply with digest
@@ -276,41 +262,27 @@ func registerClient(username *string, password *string, dst *string, inter *stri
 		tx, err := client.TransactionRequest(ctx, newReq)
 		if err != nil {
 			log.Fatal().Err(err).Msg("Fail to create transaction")
-			return nil, err
+			return nil, -1, err
 		}
 		defer tx.Terminate()
 
 		res, err = getResponse(tx)
 		if err != nil {
 			log.Fatal().Err(err).Msg("Fail to get response")
-			return nil, err
+			return nil, -1, err
 		}
 
 		contact := res.Contact()
 		expires, _ := contact.Params.Get("expires")
 		expiresInt, _ := strconv.Atoi(expires)
-		fmt.Printf("Expires: %s\n", expires)
-
-		ticker := time.NewTicker(time.Duration(expiresInt-100) * time.Second)
-		quit := make(chan struct{})
-		go func() {
-			for {
-				select {
-				case <-ticker.C:
-					registerClient(username, password, dst, inter, tran, ua)
-				case <-quit:
-					ticker.Stop()
-					return
-				}
-			}
-		}()
+		expiration = expiresInt
 	}
 
 	if res.StatusCode != 200 {
 		log.Fatal().Msg("Fail to register")
 	}
 
-	return client, nil
+	return client, expiration, nil
 }
 
 func getResponse(tx sip.ClientTransaction) (*sip.Response, error) {
