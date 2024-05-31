@@ -44,9 +44,14 @@ func main() {
 		log.Fatal().Err(err).Msg("Fail to setup user agent")
 	}
 
+	srv, err := sipgo.NewServer(ua)
+	if err != nil {
+		log.Fatal().Err(err).Msg("Fail to setup server handle")
+	}
+
 	var expiration = 0
 
-	_, expiration, err = start(username, password, dst, inter, tran, ua)
+	_, expiration, err = start(username, password, dst, inter, tran, ua, srv)
 	if err != nil {
 		log.Fatal().Err(err).Msg("Fail to start client")
 	}
@@ -59,24 +64,24 @@ func main() {
 		log.Info().Msg("Restarting client")
 		ticker := time.NewTicker(time.Duration(expiration-100) * time.Second)
 		quit := make(chan struct{})
-		go func() {
-			for {
-				select {
-				case <-ticker.C:
-					_, expiration, err = start(username, password, dst, inter, tran, ua)
-					if err != nil {
-						log.Fatal().Err(err).Msg("Fail to start client")
-					}
-				case <-quit:
-					ticker.Stop()
-					return
+		// go func() {
+		for {
+			select {
+			case <-ticker.C:
+				_, expiration, err = start(username, password, dst, inter, tran, ua, srv)
+				if err != nil {
+					log.Fatal().Err(err).Msg("Fail to start client")
 				}
+			case <-quit:
+				ticker.Stop()
+				return
 			}
-		}()
+		}
+		// }()
 	}
 }
 
-func start(username *string, password *string, dst *string, inter *string, tran *string, ua *sipgo.UserAgent) (*sipgo.Client, int, error) {
+func start(username *string, password *string, dst *string, inter *string, tran *string, ua *sipgo.UserAgent, srv *sipgo.Server) (*sipgo.Client, int, error) {
 	client, expiration, err := registerClient(username, password, dst, inter, tran, ua)
 	if err != nil {
 		log.Fatal().Err(err).Msg("Fail to register client")
@@ -86,18 +91,13 @@ func start(username *string, password *string, dst *string, inter *string, tran 
 	log.Info().Msg("Client registered")
 	fmt.Printf("Expires: %v\n", expiration)
 
-	proxy(ua, username)
+	proxy(srv, username)
 
 	return client, expiration, nil
 }
 
-func proxy(ua *sipgo.UserAgent, username *string) {
+func proxy(srv *sipgo.Server, username *string) {
 	stateMap := sync.Map{}
-
-	srv, err := sipgo.NewServer(ua)
-	if err != nil {
-		log.Fatal().Err(err).Msg("Fail to setup server handle")
-	}
 
 	srv.OnInvite(func(req *sip.Request, tx sip.ServerTransaction) {
 		callID := req.CallID()
