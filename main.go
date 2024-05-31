@@ -137,12 +137,11 @@ func proxy(srv *sipgo.Server, username *string) {
 		callID := req.CallID()
 
 		x, _ := stateMap.Load(*callID)
-		state := x.(*Pixel)
-
-		_, ok := state.seqs[req.CSeq().SeqNo]
-		if ok {
+		if x == nil {
 			return
 		}
+		state := x.(*Pixel)
+
 		state.seqs[req.CSeq().SeqNo] = true
 
 		con, err := net.DialTCP("tcp", nil, &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 8080})
@@ -178,6 +177,9 @@ func proxy(srv *sipgo.Server, username *string) {
 		callID := req.CallID()
 
 		x, _ := stateMap.Load(*callID)
+		if x == nil {
+			return
+		}
 		state := x.(*Pixel)
 
 		_, ok := state.seqs[req.CSeq().SeqNo]
