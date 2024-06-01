@@ -48,10 +48,17 @@ func main() {
 	if err != nil {
 		log.Fatal().Err(err).Msg("Fail to setup server handle")
 	}
+	defer srv.Close()
+
+	client, err := sipgo.NewClient(ua)
+	if err != nil {
+		log.Fatal().Err(err).Msg("Fail to setup client handle")
+	}
+	defer client.Close()
 
 	var expiration = 0
 
-	_, expiration, err = start(username, password, dst, inter, tran, srv.UserAgent, srv)
+	expiration, err = start(username, password, dst, inter, tran, client, srv)
 	if err != nil {
 		log.Fatal().Err(err).Msg("Fail to start client")
 	}
@@ -68,12 +75,7 @@ func main() {
 		for {
 			select {
 			case <-ticker.C:
-				srv, err := sipgo.NewServer(ua)
-				if err != nil {
-					log.Fatal().Err(err).Msg("Fail to setup server handle")
-				}
-
-				_, expiration, err = start(username, password, dst, inter, tran, srv.UserAgent, srv)
+				expiration, err = start(username, password, dst, inter, tran, client, srv)
 				if err != nil {
 					log.Fatal().Err(err).Msg("Fail to start client")
 				}
@@ -86,11 +88,11 @@ func main() {
 	}
 }
 
-func start(username *string, password *string, dst *string, inter *string, tran *string, ua *sipgo.UserAgent, srv *sipgo.Server) (*sipgo.Client, int, error) {
-	client, expiration, err := registerClient(username, password, dst, inter, tran, ua)
+func start(username *string, password *string, dst *string, inter *string, tran *string, client *sipgo.Client, srv *sipgo.Server) (int, error) {
+	expiration, err := registerClient(username, password, dst, inter, tran, client)
 	if err != nil {
 		log.Fatal().Err(err).Msg("Fail to register client")
-		return nil, -1, err
+		return -1, err
 	}
 
 	log.Info().Msg("Client registered")
@@ -98,7 +100,7 @@ func start(username *string, password *string, dst *string, inter *string, tran 
 
 	proxy(srv, username)
 
-	return client, expiration, nil
+	return expiration, nil
 }
 
 func proxy(srv *sipgo.Server, username *string) {
@@ -204,14 +206,7 @@ func proxy(srv *sipgo.Server, username *string) {
 	srv.OnAck(func(req *sip.Request, tx sip.ServerTransaction) {})
 }
 
-func registerClient(username *string, password *string, dst *string, inter *string, tran *string, ua *sipgo.UserAgent) (*sipgo.Client, int, error) {
-	client, err := sipgo.NewClient(ua)
-	if err != nil {
-		log.Fatal().Err(err).Msg("Fail to setup client handle")
-		return nil, -1, err
-	}
-	defer client.Close()
-
+func registerClient(username *string, password *string, dst *string, inter *string, tran *string, client *sipgo.Client) (int, error) {
 	// Create basic REGISTER request structure
 	recipient := &sip.Uri{}
 	sip.ParseUri(fmt.Sprintf("sip:%s@%s", *username, *dst), recipient)
@@ -228,14 +223,14 @@ func registerClient(username *string, password *string, dst *string, inter *stri
 	tx, err := client.TransactionRequest(ctx, req)
 	if err != nil {
 		log.Fatal().Err(err).Msg("Fail to create transaction")
-		return nil, -1, err
+		return -1, err
 	}
 	defer tx.Terminate()
 
 	res, err := getResponse(tx)
 	if err != nil {
 		log.Fatal().Err(err).Msg("Fail to get response")
-		return nil, -1, err
+		return -1, err
 	}
 
 	var expiration = -1
@@ -247,7 +242,7 @@ func registerClient(username *string, password *string, dst *string, inter *stri
 		chal, err := digest.ParseChallenge(wwwAuth.Value())
 		if err != nil {
 			log.Fatal().Str("wwwauth", wwwAuth.Value()).Err(err).Msg("Fail to parse challenge")
-			return nil, -1, err
+			return -1, err
 		}
 
 		// Reply with digest
@@ -269,14 +264,14 @@ func registerClient(username *string, password *string, dst *string, inter *stri
 		tx, err := client.TransactionRequest(ctx, newReq)
 		if err != nil {
 			log.Fatal().Err(err).Msg("Fail to create transaction")
-			return nil, -1, err
+			return -1, err
 		}
 		defer tx.Terminate()
 
 		res, err = getResponse(tx)
 		if err != nil {
 			log.Fatal().Err(err).Msg("Fail to get response")
-			return nil, -1, err
+			return -1, err
 		}
 
 		contact := res.Contact()
@@ -289,7 +284,7 @@ func registerClient(username *string, password *string, dst *string, inter *stri
 		log.Fatal().Msg("Fail to register")
 	}
 
-	return client, expiration, nil
+	return expiration, nil
 }
 
 func getResponse(tx sip.ClientTransaction) (*sip.Response, error) {
