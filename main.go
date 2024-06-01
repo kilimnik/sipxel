@@ -14,6 +14,7 @@ import (
 
 	"github.com/emiago/sipgo"
 	"github.com/emiago/sipgo/sip"
+	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 
@@ -56,9 +57,14 @@ func main() {
 	}
 	defer client.Close()
 
+	callID, err := uuid.NewRandom()
+	if err != nil {
+		log.Fatal().Err(err).Msg("Fail to create CallID")
+	}
+
 	var expiration = 0
 
-	expiration, err = start(username, password, dst, inter, tran, client, srv)
+	expiration, err = start(username, password, dst, inter, tran, client, srv, &callID)
 	if err != nil {
 		log.Fatal().Err(err).Msg("Fail to start client")
 	}
@@ -75,7 +81,7 @@ func main() {
 		for {
 			select {
 			case <-ticker.C:
-				expiration, err = start(username, password, dst, inter, tran, client, srv)
+				expiration, err = start(username, password, dst, inter, tran, client, srv, &callID)
 				if err != nil {
 					log.Fatal().Err(err).Msg("Fail to start client")
 				}
@@ -88,8 +94,8 @@ func main() {
 	}
 }
 
-func start(username *string, password *string, dst *string, inter *string, tran *string, client *sipgo.Client, srv *sipgo.Server) (int, error) {
-	expiration, err := registerClient(username, password, dst, inter, tran, client)
+func start(username *string, password *string, dst *string, inter *string, tran *string, client *sipgo.Client, srv *sipgo.Server, callID *uuid.UUID) (int, error) {
+	expiration, err := registerClient(username, password, dst, inter, tran, client, callID)
 	if err != nil {
 		log.Fatal().Err(err).Msg("Fail to register client")
 		return -1, err
@@ -206,13 +212,18 @@ func proxy(srv *sipgo.Server, username *string) {
 	srv.OnAck(func(req *sip.Request, tx sip.ServerTransaction) {})
 }
 
-func registerClient(username *string, password *string, dst *string, inter *string, tran *string, client *sipgo.Client) (int, error) {
+func registerClient(username *string, password *string, dst *string, inter *string, tran *string, client *sipgo.Client, callID *uuid.UUID) (int, error) {
+	callIDHeader := sip.CallIDHeader(callID.String())
+
 	// Create basic REGISTER request structure
 	recipient := &sip.Uri{}
 	sip.ParseUri(fmt.Sprintf("sip:%s@%s", *username, *dst), recipient)
 	req := sip.NewRequest(sip.REGISTER, *recipient)
 	req.AppendHeader(
 		sip.NewHeader("Contact", fmt.Sprintf("<sip:%s@%s>", *username, *inter)),
+	)
+	req.AppendHeader(
+		&callIDHeader,
 	)
 	req.SetTransport(strings.ToUpper(*tran))
 
@@ -256,6 +267,9 @@ func registerClient(username *string, password *string, dst *string, inter *stri
 		newReq := sip.NewRequest(sip.REGISTER, *recipient)
 		newReq.AppendHeader(
 			sip.NewHeader("Contact", fmt.Sprintf("<sip:%s@%s>", *username, *inter)),
+		)
+		req.AppendHeader(
+			&callIDHeader,
 		)
 		newReq.SetTransport(strings.ToUpper(*tran))
 		newReq.AppendHeader(sip.NewHeader("Authorization", cred.String()))
