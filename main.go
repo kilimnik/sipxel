@@ -68,6 +68,11 @@ func main() {
 		for {
 			select {
 			case <-ticker.C:
+				srv, err := sipgo.NewServer(ua)
+				if err != nil {
+					log.Fatal().Err(err).Msg("Fail to setup server handle")
+				}
+
 				_, expiration, err = start(username, password, dst, inter, tran, srv.UserAgent, srv)
 				if err != nil {
 					log.Fatal().Err(err).Msg("Fail to start client")
